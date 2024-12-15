@@ -51,6 +51,7 @@
   <buildtool_depend>catkin</buildtool_depend>
   <depend>rospy</depend>
   <depend>turtlesim</depend>
+  <depend>moveit</depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>
