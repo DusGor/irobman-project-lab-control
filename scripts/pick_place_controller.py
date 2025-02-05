@@ -46,10 +46,6 @@ class PickPlaceController:
 
     def _get_cube_info(self, odo: Odometry):
         self.cube_pose = odo.pose.pose
-
-    def _close_gripper(self):
-        self.gripper_cmd_pub.publish("close")
-        rospy.sleep(2)
     
     def _open_gripper(self, pre_grasp_posture: trajectory_msgs.msg.JointTrajectory):
         pre_grasp_posture.joint_names = ["panda_finger_joint1", "panda_finger_joint2"]
@@ -62,20 +58,6 @@ class PickPlaceController:
         grasp_posture.points = [trajectory_msgs.msg.JointTrajectoryPoint()]
         grasp_posture.points[0].positions = [0.00, 0.00]
         grasp_posture.points[0].time_from_start = rospy.Duration(nsecs=int(5e8)) # type: ignore
-    # def _set_gripper_pos(self, value):
-    #     # TODO: Does not seem to be the most elegant way. We should rework this.
-    #     # Source: http://docs.ros.org/en/jade/api/moveit_commander/html/robot_8py_source.html
-    #     if not (0.0 <= value <= 1.0):
-    #         raise ValueError(f"Gripper Pos must be between 0.0 and 1.0, was {value}!") 
-    #     joint1: moveit_commander.RobotCommander.Joint = self.robot.get_joint("panda_finger_joint1")
-    #     j1_min = joint1.min_bound()
-    #     j1_max = joint1.max_bound()
-    #     joint1.move((j1_max - j1_min) * value, wait=True)
-
-    #     joint2: moveit_commander.RobotCommander.Joint = self.robot.get_joint("panda_finger_joint2")
-    #     j2_min = joint2.min_bound()
-    #     j2_max = joint2.max_bound()
-    #     joint2.move((j2_max - j2_min) * value, wait=True)
 
     def _create_collision_object(self, id, dimensions, pose: Union[geometry_msgs.msg.Pose, Odometry],):
         obj = moveit_msgs.msg.CollisionObject()
@@ -184,21 +166,6 @@ class PickPlaceController:
 
 
 if __name__ == "__main__":
-    start_pose = geometry_msgs.msg.Pose()
-    # start_pose.orientation.x = np.sin(np.pi/2)
-    # start_pose.orientation.y = 0
-    # start_pose.orientation.z = 0
-    # start_pose.orientation.w = np.cos(np.pi/2)
-    start_pose.orientation.x = 1.0
-    start_pose.orientation.y = 0
-    start_pose.orientation.z = 0
-    start_pose.orientation.w = 0
-
-    start_pose.position.x = 0.3
-    start_pose.position.y = 0.0
-    start_pose.position.z = 0.5
-
     controller = PickPlaceController()
-    # controller.move_to_pose(start_pose)
     controller.run()
 
