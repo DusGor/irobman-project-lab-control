@@ -94,15 +94,28 @@ class PickPlaceController:
         table_size = (0.81, 1.49, 0.787)
 
 
-        table_pose = geometry_msgs.msg.Pose()
-        table_pose.position.x = 0.495
-        table_pose.position.y = 0.0
-        table_pose.position.z = -0.3935
+        table1_pose = geometry_msgs.msg.Pose()
+        table1_pose.position.x = 0.495
+        table1_pose.position.y = 0.0
+        table1_pose.position.z = -0.3935
 
-        table = self._create_collision_object(id='table',
+        table1 = self._create_collision_object(id='table1',
                                         dimensions=table_size,
-                                        pose=table_pose)
-        self.scene.add_object(table)
+                                        pose=table1_pose)
+        self.scene.add_object(table1)
+
+
+        table2_pose = geometry_msgs.msg.Pose()
+        table2_pose.position.x = -0.495
+        table2_pose.position.y = 0.0
+        table2_pose.position.z = -0.3935
+
+        table2 = self._create_collision_object(id='table2',
+                                        dimensions=table_size,
+                                        pose=table2_pose)
+        self.scene.add_object(table2)
+
+
 
         for i, cube_pose in enumerate(self._get_cube_poses()):
             if cube_pose is not None:
@@ -137,7 +150,7 @@ class PickPlaceController:
             cube_quat = [cube_pose.orientation.x, cube_pose.orientation.y, cube_pose.orientation.z, cube_pose.orientation.w]
             cube_rpy = tf.transformations.euler_from_quaternion(cube_quat)
             
-            quaternion = tf.transformations.quaternion_from_euler(0, math.pi, cube_rpy[2] - math.pi/4) # Orientation has to be pitch=pi to point downwards and cube yaw - pi/4 
+            quaternion = tf.transformations.quaternion_from_euler(0, math.pi, cube_rpy[2] - math.pi/4) # Orientation has to be pitch=pi to point downwards and cube yaw - pi/4
             grasp_pose.orientation.x = quaternion[0]
             grasp_pose.orientation.y = quaternion[1]
             grasp_pose.orientation.z = quaternion[2]
@@ -151,7 +164,7 @@ class PickPlaceController:
 
             # * Setting pre-grasp approach
             grasp.pre_grasp_approach.direction.header.frame_id = self._planning_frame
-            # Direction is set as negative z axis
+            # Direction is set as negative z axis as we are approaching the object in negative z direction
             grasp.pre_grasp_approach.direction.vector.z = -1.0
             grasp.pre_grasp_approach.min_distance = 0.095
             grasp.pre_grasp_approach.desired_distance = 0.115
@@ -171,9 +184,43 @@ class PickPlaceController:
 
             print(f"::: Trying to grasp Cube at {cube_pose}")
             print(f"::: Placing Grasp at {grasp_pose}")
-            self.move_group.set_support_surface_name("table")
+
+            self.move_group.set_support_surface_name("table1")
 
             self.move_group.pick("cube_0", grasp)
+
+    def _place(self):
+        
+        if (cube_pose := self._get_cube_poses()[0]) is not None:
+            place_location = moveit_msgs.msg.PlaceLocation()
+            place_location.place_pose.header.frame_id = self._planning_frame
+
+            # Just place the cube in the exact same spot on the other table
+            place_location.place_pose.pose.position = cube_pose.position
+            place_location.place_pose.pose.position.x = -cube_pose.position.x # Table is on mirrored x axis
+
+            place_location.place_pose.pose.orientation = cube_pose.orientation
+
+            # Setting Pre-Place Approach
+            place_location.pre_place_approach.direction.header.frame_id = self._planning_frame
+            # Direction is set as negative z axis
+            place_location.pre_place_approach.direction.vector.z = -1.0
+            place_location.pre_place_approach.min_distance = 0.095
+            place_location.pre_place_approach.desired_distance = 0.115
+
+            # Setting Post-Place Approach
+            place_location.post_place_retreat.direction.header.frame_id = self._planning_frame
+            # Direction is set as positive z axis
+            place_location.post_place_retreat.direction.vector.z = 1.0
+            place_location.post_place_retreat.min_distance = 0.1
+            place_location.post_place_retreat.desired_distance = 0.25
+
+            # Setting posture of ee after place
+            self._open_gripper(place_location.post_place_posture)
+            
+            self.move_group.set_support_surface_name("table2")
+            self.move_group.place("cube_0", place_location)
+
 
     def run(self):
         rate = rospy.Rate(10)
@@ -181,6 +228,8 @@ class PickPlaceController:
             # Wait for cube_pose to be available
             if self.cube_pose:
                 self._pick()
+                rospy.sleep(5)
+                self._place()
                 rospy.sleep(5)
                 break
 
