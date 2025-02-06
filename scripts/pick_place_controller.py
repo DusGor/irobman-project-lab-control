@@ -10,6 +10,8 @@ import geometry_msgs.msg
 import std_msgs.msg
 import shape_msgs.msg
 import trajectory_msgs.msg
+import tf
+import math
 
 from nav_msgs.msg import Odometry
 
@@ -19,12 +21,13 @@ class PickPlaceController:
         moveit_commander.roscpp_initialize(sys.argv)
         rospy.init_node("pick_place_controller")
         rospy.loginfo("Pick Place Controller Started ...")
+        self.cube_size  = 0.045 # Added in class to use in calculations later
 
         self.robot = moveit_commander.RobotCommander() # type: ignore
         self.scene = moveit_commander.PlanningSceneInterface() # type: ignore
         group_name = "panda_arm"
         self.move_group: moveit_commander.MoveGroupCommander.MoveGroupCommander = moveit_commander.MoveGroupCommander(group_name) # type: ignore
-        # self.move_group.set_planning_time(45)
+        self.move_group.set_planning_time(15)
         self.tau = 2 * np.pi # type: ignore
 
         self._planning_frame = self.robot.get_planning_frame()
@@ -51,13 +54,13 @@ class PickPlaceController:
         pre_grasp_posture.joint_names = ["panda_finger_joint1", "panda_finger_joint2"]
         pre_grasp_posture.points = [trajectory_msgs.msg.JointTrajectoryPoint()]
         pre_grasp_posture.points[0].positions = [0.04, 0.04]
-        pre_grasp_posture.points[0].time_from_start = rospy.Duration(nsecs=int(5e8)) # type: ignore
+        #pre_grasp_posture.points[0].time_from_start = rospy.Duration(nsecs=int(5e8)) # type: ignore
     
     def _closed_gripper(self, grasp_posture: trajectory_msgs.msg.JointTrajectory):
         grasp_posture.joint_names = ["panda_finger_joint1", "panda_finger_joint2"]
         grasp_posture.points = [trajectory_msgs.msg.JointTrajectoryPoint()]
         grasp_posture.points[0].positions = [0.00, 0.00]
-        grasp_posture.points[0].time_from_start = rospy.Duration(nsecs=int(5e8)) # type: ignore
+        #grasp_posture.points[0].time_from_start = rospy.Duration(nsecs=int(5e8)) # type: ignore
 
     def _create_collision_object(self, id, dimensions, pose: Union[geometry_msgs.msg.Pose, Odometry],):
         obj = moveit_msgs.msg.CollisionObject()
@@ -73,6 +76,7 @@ class PickPlaceController:
         obj_pose.position.x = pose.position.x
         obj_pose.position.y = pose.position.y
         obj_pose.position.z = pose.position.z
+
         
         obj_pose.orientation.w = pose.orientation.w
         obj_pose.orientation.x = pose.orientation.x
@@ -86,7 +90,6 @@ class PickPlaceController:
     def _add_collision_objects(self):
         # SCENE = moveit_commander.PlanningSceneInterface()
 
-        cube_size  = 0.045
 
         table_size = (0.81, 1.49, 0.787)
 
@@ -105,7 +108,7 @@ class PickPlaceController:
             if cube_pose is not None:
                 msg = f"Creating collision object for cube {i} at pos {cube_pose}"
                 rospy.loginfo(msg)
-                cube = self._create_collision_object(id=f'cube_{i}', dimensions=[cube_size, cube_size, cube_size], pose=cube_pose)
+                cube = self._create_collision_object(id=f'cube_{i}', dimensions=[self.cube_size, self.cube_size, self.cube_size], pose=cube_pose)
                 self.scene.add_object(cube)
 
         
@@ -121,19 +124,35 @@ class PickPlaceController:
     def _pick(self):
 
         if (cube_pose := self._get_cube_poses()[0]) is not None:
-            # self.move_to_pose(cube_pose)
+
             rospy.loginfo(f"Planning Grasp for cube ...")
+
             # * Set grasp
             grasp = moveit_msgs.msg.Grasp()
             grasp.grasp_pose.header.frame_id = self._planning_frame
             grasp_pose: geometry_msgs.msg.Pose = grasp.grasp_pose.pose
-            # TODO: Set Orientation -> grasp_pose.orientation
-            grasp_pose.position = cube_pose.position
+
+            
+            # Calculate Cube and Grasp Orientation
+            cube_quat = [cube_pose.orientation.x, cube_pose.orientation.y, cube_pose.orientation.z, cube_pose.orientation.w]
+            cube_rpy = tf.transformations.euler_from_quaternion(cube_quat)
+            
+            quaternion = tf.transformations.quaternion_from_euler(0, math.pi, cube_rpy[2] - math.pi/4) # Orientation has to be pitch=pi to point downwards and cube yaw - pi/4 
+            grasp_pose.orientation.x = quaternion[0]
+            grasp_pose.orientation.y = quaternion[1]
+            grasp_pose.orientation.z = quaternion[2]
+            grasp_pose.orientation.w = quaternion[3]
+
+            grasp_pose.position.x = cube_pose.position.x
+            grasp_pose.position.y = cube_pose.position.y
+
+            # Grasp Distance
+            grasp_pose.position.z = cube_pose.position.z + self.cube_size + 0.058 #0.058 is half the distance between link 8 and the end of the EE
 
             # * Setting pre-grasp approach
             grasp.pre_grasp_approach.direction.header.frame_id = self._planning_frame
-            # Direction is set as positive z axis
-            grasp.pre_grasp_approach.direction.vector.z = 1.0
+            # Direction is set as negative z axis
+            grasp.pre_grasp_approach.direction.vector.z = -1.0
             grasp.pre_grasp_approach.min_distance = 0.095
             grasp.pre_grasp_approach.desired_distance = 0.115
 
@@ -150,6 +169,8 @@ class PickPlaceController:
             # * Set posture of ee during grasp
             self._closed_gripper(grasp.grasp_posture)
 
+            print(f"::: Trying to grasp Cube at {cube_pose}")
+            print(f"::: Placing Grasp at {grasp_pose}")
             self.move_group.set_support_surface_name("table")
 
             self.move_group.pick("cube_0", grasp)

@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>irobman-project-lab-control</name>
+  <name>irobman</name>
   <version>0.0.0</version>
   <description>The irobman-project-lab-control package</description>
 
