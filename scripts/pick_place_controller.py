@@ -13,6 +13,7 @@ import trajectory_msgs.msg
 import tf
 import math
 
+from gripper_controller import GripperController
 from nav_msgs.msg import Odometry
 
 
@@ -28,9 +29,9 @@ class PickPlaceController:
         self.scene = moveit_commander.PlanningSceneInterface() # type: ignore
         group_name = "panda_arm"
         self.move_group: moveit_commander.MoveGroupCommander.MoveGroupCommander = moveit_commander.MoveGroupCommander(group_name) # type: ignore
-        self.move_group.set_planning_time(5)
-        self.move_group.set_goal_tolerance(0.01)
         self.move_group.set_planner_id("RRTstar") # Better for tight spaces
+        self.move_group.set_planning_time(10) 
+        self.move_group.set_goal_tolerance(0.01)
         self.move_group.allow_replanning(True)
         self.move_group.set_num_planning_attempts(10)
         self.move_group.set_start_state_to_current_state()
@@ -50,6 +51,7 @@ class PickPlaceController:
         rospy.sleep(2)
 
         self._add_collision_objects()
+        self.gripper = GripperController()
 
     def _get_cube_poses(self) -> List[Odometry]:
         return [self.cube_pose] # type: ignore
@@ -57,19 +59,14 @@ class PickPlaceController:
     def _get_cube_info(self, odo: Odometry):
         self.cube_pose = odo.pose.pose
     
-    def _open_gripper(self, pre_grasp_posture: trajectory_msgs.msg.JointTrajectory):
-        pre_grasp_posture.joint_names = ["panda_finger_joint1", "panda_finger_joint2"]
-        pre_grasp_posture.points = [trajectory_msgs.msg.JointTrajectoryPoint()]
-        pre_grasp_posture.points[0].positions = [0.04, 0.04]
-        pre_grasp_posture.points[0].time_from_start = rospy.Duration(nsecs=int(5e8)) # type: ignore
+    def _open_gripper(self):
+        rospy.loginfo("Opening Gripper")
+        self.gripper.set_width(0.08)
+
     
-    def _closed_gripper(self, grasp_posture: trajectory_msgs.msg.JointTrajectory):
-        grasp_posture.joint_names = ["panda_finger_joint1", "panda_finger_joint2"]
-        grasp_posture.points = [trajectory_msgs.msg.JointTrajectoryPoint()]
-        grasp_posture.points[0].positions = [0.00, 0.00]
-        grasp_posture.points[0].effort = [200.0, 200.0]
-        # grasp_posture.points[0].time_from_start = rospy.Duration(secs=1)
-        grasp_posture.points[0].time_from_start = rospy.Duration(nsecs=int(5e10)) # type: ignore
+    def _close_gripper(self):
+        rospy.loginfo("Closing Gripper")
+        self.gripper.grasp()
 
     def _create_collision_object(self, id, dimensions, pose: Union[geometry_msgs.msg.Pose, Odometry],):
         obj = moveit_msgs.msg.CollisionObject()
@@ -125,113 +122,112 @@ class PickPlaceController:
         
 
     def move_to_pose(self, pose: geometry_msgs.msg.Pose) -> bool:
+        # TODO: Is there some way to do proper collision-checking? Right now, Path planning is just timing out when no solution is found
         rospy.loginfo(f"Target Pose: {pose}")
-        self.move_group.set_pose_target(pose, end_effector_link="panda_link7")
+        self.move_group.set_pose_target(pose, end_effector_link="panda_link8")
         result: bool = self.move_group.go(wait=True)
         self.move_group.stop()
         self.move_group.clear_pose_targets()
 
         return result
 
+    def _pick(self, cube_num) -> bool:
+        CUBE_HOVER_Z = 0.4
+        CUBE_GRASP_Z = self.cube_size + 0.058
 
-    def _pick(self) -> bool:
+        if (cube_pose := self._get_cube_poses()[cube_num]) is not None:
 
-        if (cube_pose := self._get_cube_poses()[0]) is not None:
+            rospy.loginfo(f"Executing Pick Action for cube_{cube_num} ...")
 
-            rospy.loginfo(f"Planning Grasp for cube ...")
+            rospy.loginfo(f"Moving above cube_{cube_num} ...")
 
-            # * Set grasp
-            grasp = moveit_msgs.msg.Grasp()
-            grasp.grasp_pose.header.frame_id = self._planning_frame
-            grasp_pose: geometry_msgs.msg.Pose = grasp.grasp_pose.pose
+            # Go Above Cube
+            print("Cube Pose: ", cube_pose.position)
+            pose = geometry_msgs.msg.Pose()
+            pose.position.x = self.cube_pose.position.x
+            pose.position.y = self.cube_pose.position.y
+            pose.position.z = self.cube_pose.position.z + CUBE_HOVER_Z
 
             
-            # Calculate Cube and Grasp Orientation
-            cube_quat = [cube_pose.orientation.x, cube_pose.orientation.y, cube_pose.orientation.z, cube_pose.orientation.w]
+            cube_quat = [self.cube_pose.orientation.x, self.cube_pose.orientation.y, self.cube_pose.orientation.z, self.cube_pose.orientation.w]
             cube_rpy = tf.transformations.euler_from_quaternion(cube_quat)
             
-            quaternion = tf.transformations.quaternion_from_euler(0, math.pi, cube_rpy[2] - 0 * math.pi/4) # Orientation has to be pitch=pi to point downwards and cube yaw - pi/4
-            grasp_pose.orientation.x = quaternion[0]
-            grasp_pose.orientation.y = quaternion[1]
-            grasp_pose.orientation.z = quaternion[2]
-            grasp_pose.orientation.w = quaternion[3]
+            quaternion = tf.transformations.quaternion_from_euler(0, math.pi, cube_rpy[2] - math.pi/4)
 
-            grasp_pose.position.x = cube_pose.position.x
-            grasp_pose.position.y = cube_pose.position.y
+            pose.orientation.x = quaternion[0]
+            pose.orientation.y = quaternion[1]
+            pose.orientation.z = quaternion[2]
+            pose.orientation.w = quaternion[3]
+            for retries in range (5): # As of now, the planning fails sometimes (ABORTED: TIMED_OUT). These nested if-statements make sure that it is restarted until a solution is found. TODO: Debug this properly 
+                if self.move_to_pose(pose): 
 
-            # Grasp Distance
-            grasp_pose.position.z = cube_pose.position.z + self.cube_size + 0.058 #0.058 is half the distance between link 8 and the end of the EE
+                    # Open Grasp
+                    self._open_gripper()
 
-            # * Setting pre-grasp approach
-            grasp.pre_grasp_approach.direction.header.frame_id = self._planning_frame
-            # Direction is set as negative z axis as we are approaching the object in negative z direction
-            grasp.pre_grasp_approach.direction.vector.z = -1.0
-            grasp.pre_grasp_approach.min_distance = 0.095 # + 0.05
-            grasp.pre_grasp_approach.desired_distance = 0.115 # + 0.05
+                    # Move down to cube 
+                    rospy.loginfo(f"Moving grip to cube_{cube_num} ...")
 
-            # * Set post-grasp retreat
-            grasp.post_grasp_retreat.direction.header.frame_id = self._planning_frame
-            # Direction is set as positive z axis
-            grasp.post_grasp_retreat.direction.vector.z = 1.0
-            grasp.post_grasp_retreat.min_distance = 0.15
-            grasp.post_grasp_retreat.desired_distance = 0.25
+                    pose.position.z = self.cube_pose.position.z + CUBE_GRASP_Z
 
-            # * Setting posture of ee before grasp
-            self._open_gripper(grasp.pre_grasp_posture)
+                    if self.move_to_pose(pose):
 
-            # * Set posture of ee during grasp
-            self._closed_gripper(grasp.grasp_posture)
 
-            print(f"::: Trying to grasp Cube at {cube_pose}")
-            print(f"::: Placing Grasp at {grasp_pose}")
+                        # Close Grasp
+                        self._close_gripper()
+                        rospy.loginfo(f"Picking up cube_{cube_num} ...")
 
-            self.move_group.set_support_surface_name("table")
+                        # Go back up :)
+                        pose.position.z = self.cube_pose.position.z + CUBE_HOVER_Z
 
-            return self.move_group.pick(self.cube_name, grasp)
+                        if self.move_to_pose(pose):
+                            return True
 
         return False
 
-    def _place(self) -> bool:
+    def _place(self, cube_num) -> bool:
         
-        if (cube_pose := self._get_cube_poses()[0]) is not None:
-            place_location = moveit_msgs.msg.PlaceLocation()
-            place_location.place_pose.header.frame_id = self._planning_frame
-
+        rospy.loginfo(f"Executing Place Action...")
+        pose = geometry_msgs.msg.Pose()
+        cube_pose = self._get_cube_poses[cube_num]
+        if cube_num == 0:
             
-            place_location.place_pose.pose.position.x = 0.4
-            place_location.place_pose.pose.position.y = 0.4
-            place_location.place_pose.pose.position.z = cube_pose.position.z
+            pose.position.x = 0.4
+            pose.position.y = 0.4
+            pose.position.z = cube_pose.position.z
 
-            
-            
-            
-            
-            # # Just place the cube in the exact same spot on the other table
-            # place_location.place_pose.pose.position = cube_pose.position
-            # place_location.place_pose.pose.position.x = cube_pose.position.x # Table is on mirrored x axis
-
-            # place_location.place_pose.pose.orientation = cube_pose.orientation
-
-            # Setting Pre-Place Approach
-            place_location.pre_place_approach.direction.header.frame_id = self._planning_frame
-            # Direction is set as negative z axis
-            place_location.pre_place_approach.direction.vector.z = -1.0
-            place_location.pre_place_approach.min_distance = 0.095
-            place_location.pre_place_approach.desired_distance = 0.115
-
-            # Setting Post-Place Approach
-            place_location.post_place_retreat.direction.header.frame_id = self._planning_frame
-            # Direction is set as positive z axis
-            place_location.post_place_retreat.direction.vector.z = 1.0
-            place_location.post_place_retreat.min_distance = 0.1
-            place_location.post_place_retreat.desired_distance = 0.25
-
-            # Setting posture of ee after place
-            self._open_gripper(place_location.post_place_posture)
-            
-            self.move_group.set_support_surface_name("table")
-            return self.move_group.place(self.cube_name, place_location)
         
+        
+        
+        
+        # # Just place the cube in the exact same spot on the other table
+        # place_location.place_pose.pose.position = cube_pose.position
+        # place_location.place_pose.pose.position.x = cube_pose.position.x # Table is on mirrored x axis
+
+        # place_location.place_pose.pose.orientation = cube_pose.orientation
+
+        # Setting Pre-Place Approach
+        place_location.pre_place_approach.direction.header.frame_id = self._planning_frame
+        # Direction is set as negative z axis
+        place_location.pre_place_approach.direction.vector.z = -1.0
+        place_location.pre_place_approach.min_distance = 0.095
+        place_location.pre_place_approach.desired_distance = 0.115
+
+        # Setting Post-Place Approach
+        place_location.post_place_retreat.direction.header.frame_id = self._planning_frame
+        # Direction is set as positive z axis
+        place_location.post_place_retreat.direction.vector.z = 1.0
+        place_location.post_place_retreat.min_distance = 0.1
+        place_location.post_place_retreat.desired_distance = 0.25
+
+        # Setting posture of ee after place
+        self._open_gripper(place_location.post_place_posture)
+        
+        self.move_group.set_support_surface_name("table")
+        return self.move_group.place(self.cube_name, place_location)
+        
+        return False
+
+    def _build_tower(self) -> bool:
         return False
 
     def run(self):
@@ -276,33 +272,16 @@ class PickPlaceController:
             #     rospy.sleep(5)
 
             # Wait for cube_pose to be available
-            if self.cube_pose:
-                pose = geometry_msgs.msg.Pose()
-                pose.position.x = self.cube_pose.position.x
-                pose.position.y = self.cube_pose.position.y
-                pose.position.z = self.cube_pose.position.z + 0.4
 
-                
-                cube_quat = [self.cube_pose.orientation.x, self.cube_pose.orientation.y, self.cube_pose.orientation.z, self.cube_pose.orientation.w]
-                cube_rpy = tf.transformations.euler_from_quaternion(cube_quat)
-                
-                quaternion = tf.transformations.quaternion_from_euler(0, math.pi, cube_rpy[2] - 0 * math.pi/4)
-
-                pose.orientation.x = quaternion[0]
-                pose.orientation.y = quaternion[1]
-                pose.orientation.z = quaternion[2]
-                pose.orientation.w = quaternion[3]
-
-                self.move_to_pose(pose)
-
-                if self._pick():
-                    rospy.sleep(5)
-                    # if self._place():
-                    #     rospy.sleep(5)
-                    print("SUCCESS!")
-                    break
+            if self._pick(0):
+                rospy.sleep(5)
+                # if self._place():
+                #     rospy.sleep(5)
+                print("SUCCESS!")
+                break
             print(f"FAILED!")
             break
+        self._open_gripper()
         self.scene.remove_attached_object("panda_link8", name=self.cube_name)
 
 

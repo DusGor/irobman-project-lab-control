@@ -11,41 +11,44 @@ import std_msgs.msg
 
 from nav_msgs.msg import Odometry
 
+from franka_gripper.msg import MoveActionGoal, GraspActionGoal
+
 
 class GripperController():
     def __init__(self) -> None:
-        moveit_commander.roscpp_initialize(sys.argv)
-        rospy.init_node("gripper_controller")
-        self.gripper_group = moveit_commander.MoveGroupCommander("panda_hand") # type: ignore
-        rospy.Subscriber("/panda_gripper/cmd", data_class=std_msgs.msg.String, callback=self._receive_cmd, queue_size=10)
-        self._cmd: Union[str, None] = None
+        self.grip_move_publisher = rospy.Publisher('/franka_gripper/move/goal', MoveActionGoal, queue_size=10)
+        self.grip_grasp_publisher = rospy.Publisher('/franka_gripper/grasp/goal', GraspActionGoal, queue_size=10)
     
-    def _receive_cmd(self, cmd: std_msgs.msg.String):
-        rospy.loginfo(f"Received new command: {cmd}")
-        self._cmd = cmd.data
+    def set_width(self, width):
+        
+        mag = MoveActionGoal()
+        
+        mag.goal.width = width # 0.00 < width < 0.08
 
-    def open_gripper(self):
-        self.gripper_group.set_named_target('open')
-        self.gripper_group.go(wait=True)
+        mag.goal.speed = 0.15
+        
+        rospy.loginfo(f"Opening Gripper to width {width}...")
 
-    def close_gripper(self):
-        rospy.loginfo("closing!")
-        self.gripper_group.set_named_target('close')
-        self.gripper_group.go(wait=True)
-    
-    def run(self):
-        while not rospy.is_shutdown():
-            if self._cmd:
-                if self._cmd == "open":
-                    self.open_gripper()
-                    rospy.sleep(2)
-                if self._cmd == "close":
-                    self.close_gripper()
-                    rospy.sleep(2)
+        self.grip_move_publisher.publish(mag)
 
-if __name__ == "__main__":
-    gripper_controller = GripperController()
-    gripper_controller.run()
+        
+
+    def grasp(self):
+
+        gag = GraspActionGoal()
+
+        gag.goal.width = 0.045 # cube size
+
+        # Grasp is successful if distance between fingers lies between .epsilon.inner and .epsilon.outer + .width
+        gag.goal.epsilon.inner = 0.1
+        gag.goal.epsilon.outer = 0.1
+
+        gag.goal.speed = 0.15
+        gag.goal.force = 10.0 # N
+
+        rospy.loginfo(f"Grasping with {gag.goal.force} N...")
+        
+        self.grip_grasp_publisher.publish(gag)
 
 
-
+        
