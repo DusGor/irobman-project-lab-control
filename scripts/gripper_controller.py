@@ -13,6 +13,7 @@ from nav_msgs.msg import Odometry
 
 from franka_gripper.msg import MoveActionGoal, GraspActionGoal
 
+# See this: https://frankaemika.github.io/docs/franka_ros.html?highlight=graspactiongoal#pick-place-example
 
 class GripperController():
     def __init__(self) -> None:
@@ -40,11 +41,11 @@ class GripperController():
         gag.goal.width = 0.045 # cube size
 
         # Grasp is successful if distance between fingers lies between .epsilon.inner and .epsilon.outer + .width
-        gag.goal.epsilon.inner = 0.1
-        gag.goal.epsilon.outer = 0.1
+        gag.goal.epsilon.inner = 0.05
+        gag.goal.epsilon.outer = 0.05
 
         gag.goal.speed = 0.15
-        gag.goal.force = 10.0 # N
+        gag.goal.force = 20.0 # N
 
         rospy.loginfo(f"Grasping with {gag.goal.force} N...")
         

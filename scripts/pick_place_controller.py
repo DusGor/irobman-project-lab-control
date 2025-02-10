@@ -160,7 +160,7 @@ class PickPlaceController:
             pose.orientation.z = quaternion[2]
             pose.orientation.w = quaternion[3]
             
-            for retries in range (5): # As of now, the planning fails sometimes (ABORTED: TIMED_OUT). These nested if-statements make sure that it is restarted until a solution is found. TODO: Debug this properly 
+            for retries in range (5): # As of now, the planning fails sometimes (ABORTED: TIMED_OUT). These nested if-statements make sure that it is restarted until a solution is found. TODO: Debug this properly. Also, when we are restarting the Positions dont really work anymore
                 if self.move_to_pose(pose): 
 
                     # Open Grasp
@@ -172,8 +172,6 @@ class PickPlaceController:
                     pose.position.z = self.cube_pose.position.z + self.CUBE_GRASP_Z
 
                     if self.move_to_pose(pose):
-                        old_cpose = pose 
-
 
                         # Close Grasp
                         self._close_gripper()
@@ -183,37 +181,44 @@ class PickPlaceController:
                         pose.position.z = self.cube_pose.position.z + self.CUBE_HOVER_Z
 
                         if self.move_to_pose(pose):
-                            return old_cpose
+                            return True
 
         return False
 
-    def _place(self, pose: geometry_msgs.msg.Pose) -> bool:
+    def _place(self) -> bool:
 
-        cube_pose = self._get_cube_poses()[0]
+        pose = geometry_msgs.msg.Pose()
+        pose.position.x = 0.3
+        pose.position.y = 0.3
+        pose.position.z = 0.126# Hardcoded Z should be replaced later 
+
+        quaternion = tf.transformations.quaternion_from_euler(0, math.pi, 0)
+
+        pose.orientation.x = quaternion[0]
+        pose.orientation.y = quaternion[1]
+        pose.orientation.z = quaternion[2]
+        pose.orientation.w = quaternion[3]
+
         rospy.loginfo(f"Placing object at pose {pose}")
-        
-        save_position = pose
+
         for retries in range (5):
             # Move to goal xy
             rospy.loginfo(f"Move to goal xy")
-            
-            pose.position.x += 0.2
-            pose.position.y += 0.2
 
-            pose.position.z = cube_pose.position.z 
+            pose.position.z += 0.3
 
             if self.move_to_pose(pose): 
                 # Move downwards
                 rospy.loginfo(f"Move downwards")
 
-                pose.position.z = save_position.position.z
+                pose.position.z -= 0.3
 
                 if self.move_to_pose(pose):
                     # Open Grasp
                     self._open_gripper()
 
                     # Go back up :)
-                    pose.position.z += self.CUBE_HOVER_Z
+                    pose.position.z += 0.3
 
                     if self.move_to_pose(pose):
                         return True
@@ -241,6 +246,9 @@ class PickPlaceController:
         return True
 
     def run(self):
+        self._open_gripper()
+        self.scene.remove_attached_object("panda_link8", name=self.cube_name)
+
         rate = rospy.Rate(10)
         pose_goal = self.move_group.get_current_pose().pose
         print(pose_goal)  # Print the current pose to debug
@@ -283,16 +291,14 @@ class PickPlaceController:
 
             # Wait for cube_pose to be available
 
-            pose = self._pick(0)
-            if isinstance(pose, geometry_msgs.msg.Pose):
-                self._place(pose)
+            if self._pick(0):
+                self._place()
                 print("SUCCESS!")
                 break
             print(f"FAILED!")
             break
         self._open_gripper()
         
-        self.scene.remove_attached_object("panda_link8", name=self.cube_name)
 
 
 if __name__ == "__main__":
