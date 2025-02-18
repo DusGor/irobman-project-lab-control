@@ -25,8 +25,8 @@ class PickPlaceController:
         self.cube_size = 0.045 # Added in class to use in calculations later
         self.cube_num = cube_num
 
-        self.CUBE_HOVER_Z = 0.2
-        self.CUBE_GRASP_Z = self.cube_size + 0.060
+        self.CUBE_HOVER_Z = 0.25
+        self.CUBE_GRASP_Z = self.cube_size + 0.09
         self.GRASP_TOLERANCE = 0.10
 
         self.robot = moveit_commander.RobotCommander() # type: ignore
@@ -206,33 +206,39 @@ class PickPlaceController:
 
         return result
 
+    def follow_trajectory(self, goal_pose: geometry_msgs.msg.Pose) -> bool:
+
+
+        return True
+
+        
     def _pick(self, cube_pose: geometry_msgs.msg.Pose) -> bool:
         # TODO: Implement Proper Trajectory Generation
 
         rospy.loginfo(f"Executing Pick Action for Pose {cube_pose} ...")
+        
+        # Open Grasp
+        self._open_gripper()
 
         rospy.loginfo(f"Moving above cube ...")
-        # Open Grasp
+        
 
         # Go Above Cube
-        print("Cube Pose: ", cube_pose.position)
         pose = geometry_msgs.msg.Pose()
         pose.position.x = cube_pose.position.x
         pose.position.y = cube_pose.position.y
-        pose.position.z = cube_pose.position.z + self.CUBE_HOVER_Z
 
         pose.orientation = cube_pose.orientation
-        self._open_gripper()
 
-        for retries in range (5): # As of now, the planning fails sometimes (ABORTED: TIMED_OUT). These nested if-statements make sure that it is restarted until a solution is found. TODO: Debug this properly. Also, when we are restarting the Positions dont really work anymore
+        pose.position.z = self.CUBE_HOVER_Z
+
+        for retries in range(5): # As of now, the planning fails sometimes (ABORTED: TIMED_OUT). These nested if-statements make sure that it is restarted until a solution is found. TODO: Debug this properly. Also, when we are restarting the Positions dont really work anymore
             if self.move_to_pose(pose): 
-
-                self._open_gripper()
 
                 # Move down to cube 
                 rospy.loginfo(f"Moving grip to cube ...")
 
-                pose.position.z = cube_pose.position.z + self.CUBE_GRASP_Z
+                pose.position.z = self.CUBE_GRASP_Z
 
                 if self.move_to_pose(pose):
 
@@ -243,11 +249,12 @@ class PickPlaceController:
                     rospy.loginfo(f"Picking up cube ...")
 
                     # Go back up :)
-                    pose.position.z = cube_pose.position.z + self.CUBE_HOVER_Z
+                    pose.position.z = self.CUBE_HOVER_Z
 
                     if self.move_to_pose(pose):
-                        return True
-
+                        return True 
+                    
+        return False
 
     def _place(self, pose: geometry_msgs.msg.Pose) -> bool:
 
@@ -257,37 +264,20 @@ class PickPlaceController:
 
         pose.orientation = current_pose.orientation # Dont change orientation, WIP
 
-        if self.move_to_pose(pose):
-            self._open_gripper()
-            return True
+        for retries in range(5):
+            pose.position.z += 0.3
+            if self.move_to_pose(pose):
+                pose.position.z -= 0.3
+                if self.move_to_pose(pose):
+                    self._open_gripper()
+                return True
 
         return False
 
-        # for retries in range (5):
-        #     # Move to goal xy
-        #     rospy.loginfo(f"Move to goal xy")
-
-        #     pose.position.z += 0.3
-
-        #     if self.move_to_pose(pose): 
-        #         # Move downwards
-        #         rospy.loginfo(f"Move downwards")
-
-        #         pose.position.z -= 0.3
-
-        #         if self.move_to_pose(pose):
-        #             # Open Grasp
-        #             self._open_gripper()
-
-        #             # Go back up :)
-        #             pose.position.z += 0.3
-
-        #             if self.move_to_pose(pose):
-        #                 return True
 
         
         
-    def _build_tower(self) -> bool: 
+    def _build_tower(self) -> bool:  # TODO: Gripper logic is currently broken, randomly opens after picking up cube
         cube_grasps = self._get_cube_grasps_in_order()
 
         tower_pose = geometry_msgs.msg.Pose()
@@ -296,6 +286,7 @@ class PickPlaceController:
         for i, cube_pose in enumerate(cube_grasps):
             if i == 0: # Assume its the best position to build 
                 tower_pose = cube_pose
+                tower_pose.position.z += self.CUBE_GRASP_Z
                 continue
             rospy.loginfo(f"Pick&Place for Cube {i}")
 
@@ -304,6 +295,7 @@ class PickPlaceController:
             tower_pose.position.z += self.cube_size
 
             self._place(tower_pose)
+
 
         return True
 
