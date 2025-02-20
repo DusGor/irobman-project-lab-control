@@ -34,6 +34,8 @@ class PickPlaceController:
         self.move_group.allow_replanning(True)
         self.move_group.set_num_planning_attempts(10)
         self.move_group.set_start_state_to_current_state()
+        self.move_group.set_max_velocity_scaling_factor(0.1)
+        self.move_group.set_max_acceleration_scaling_factor(0.1)
 
         self.tau = 2 * np.pi # type: ignore
 
@@ -67,9 +69,9 @@ class PickPlaceController:
         grasp_posture.joint_names = ["panda_finger_joint1", "panda_finger_joint2"]
         grasp_posture.points = [trajectory_msgs.msg.JointTrajectoryPoint()]
         grasp_posture.points[0].positions = [0.00, 0.00]
-        grasp_posture.points[0].effort = [200.0, 200.0]
+        grasp_posture.points[0].effort = [40.0, 40.0]
         # grasp_posture.points[0].time_from_start = rospy.Duration(secs=1)
-        grasp_posture.points[0].time_from_start = rospy.Duration(nsecs=int(5e10)) # type: ignore
+        grasp_posture.points[0].time_from_start = rospy.Duration(nsecs=int(5e11)) # type: ignore
 
     def _create_collision_object(self, id, dimensions, pose: Union[geometry_msgs.msg.Pose, Odometry],):
         obj = moveit_msgs.msg.CollisionObject()
@@ -125,7 +127,7 @@ class PickPlaceController:
         
 
     def move_to_pose(self, pose: geometry_msgs.msg.Pose) -> bool:
-        rospy.loginfo(f"Target Pose: {pose}")
+        # rospy.loginfo(f"Target Pose: {pose}")
         self.move_group.set_pose_target(pose, end_effector_link="panda_link7")
         result: bool = self.move_group.go(wait=True)
         self.move_group.stop()
@@ -168,6 +170,8 @@ class PickPlaceController:
             grasp.pre_grasp_approach.direction.vector.z = -1.0
             grasp.pre_grasp_approach.min_distance = 0.095 # + 0.05
             grasp.pre_grasp_approach.desired_distance = 0.115 # + 0.05
+            # grasp.pre_grasp_approach.max_velocity_scaling_factor=0.2
+            # grasp.pre_grasp_approach.max_acceleration_scaling_factor=0.2
 
             # * Set post-grasp retreat
             grasp.post_grasp_retreat.direction.header.frame_id = self._planning_frame
@@ -181,11 +185,20 @@ class PickPlaceController:
 
             # * Set posture of ee during grasp
             self._closed_gripper(grasp.grasp_posture)
+            
 
-            print(f"::: Trying to grasp Cube at {cube_pose}")
-            print(f"::: Placing Grasp at {grasp_pose}")
+            # print(f"::: Trying to grasp Cube at {cube_pose}")
+            # print(f"::: Placing Grasp at {grasp_pose}")
 
             self.move_group.set_support_surface_name("table")
+
+            # grasp.allowed_touch_objects.append(self.cube_name)
+
+            # collision_objects = self.scene.get_known_object_names()
+
+            # for obj in collision_objects:
+            #     if 'cube' in obj or 'table' in obj:
+            #         self.scene.remove_world_object(obj)
 
             return self.move_group.pick(self.cube_name, grasp)
 
@@ -237,8 +250,8 @@ class PickPlaceController:
     def run(self):
         rate = rospy.Rate(10)
         pose_goal = self.move_group.get_current_pose().pose
-        print(pose_goal)  # Print the current pose to debug
-        print(self.move_group.get_current_joint_values())
+        # print(pose_goal)  # Print the current pose to debug
+        # print(self.move_group.get_current_joint_values())
         while not rospy.is_shutdown():
             # Move to overview pose to capture table with viewpoint
             # overview_pose = geometry_msgs.msg.Pose()
@@ -293,7 +306,7 @@ class PickPlaceController:
                 pose.orientation.z = quaternion[2]
                 pose.orientation.w = quaternion[3]
 
-                self.move_to_pose(pose)
+                # self.move_to_pose(pose)
 
                 if self._pick():
                     rospy.sleep(5)
