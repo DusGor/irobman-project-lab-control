@@ -57,7 +57,7 @@ class GripperController():
 
         gag = GraspActionGoal()
 
-        gag.goal.width = 0.045 # cube size
+        gag.goal.width = 0.040 # cube size
 
         # Grasp is successful if distance between fingers lies between .epsilon.inner and .epsilon.outer + .width
         gag.goal.epsilon.inner = 0.01

@@ -270,6 +270,11 @@ class PickPlaceController:
                 pose.position.z -= 0.3
                 if self.move_to_pose(pose):
                     self._open_gripper()
+                    rospy.sleep(1)
+                    pose.position.z += self.CUBE_HOVER_Z
+                    self.move_to_pose(pose)
+                    pose.position.z += 0.2
+                    self.move_to_pose(pose)
                 return True
 
         return False
