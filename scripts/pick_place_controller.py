@@ -18,29 +18,29 @@ from nav_msgs.msg import Odometry
 
 
 class PickPlaceController:
-    def __init__(self,  cube_num: int) -> None:
+    def __init__(self) -> None:
         moveit_commander.roscpp_initialize(sys.argv)
         rospy.init_node("pick_place_controller")
         rospy.loginfo("Pick Place Controller Started ...")
-        self.cube_size = 0.045 # Added in class to use in calculations later
-        self.cube_num = cube_num
+        self.cube_size = 0.045  # Added in class to use in calculations later
+        # self.cube_num = cube_num
 
         self.CUBE_HOVER_Z = 0.25
         self.CUBE_GRASP_Z = self.cube_size + 0.09
         self.GRASP_TOLERANCE = 0.10
 
-        self.robot = moveit_commander.RobotCommander() # type: ignore
-        self.scene = moveit_commander.PlanningSceneInterface() # type: ignore
+        self.robot = moveit_commander.RobotCommander()  # type: ignore
+        self.scene = moveit_commander.PlanningSceneInterface()  # type: ignore
         group_name = "panda_arm"
-        self.move_group: moveit_commander.MoveGroupCommander.MoveGroupCommander = moveit_commander.MoveGroupCommander(group_name) # type: ignore
-        self.move_group.set_planner_id("RRTstar") # Better for tight spaces
-        self.move_group.set_planning_time(10) 
+        self.move_group: moveit_commander.MoveGroupCommander.MoveGroupCommander = moveit_commander.MoveGroupCommander(group_name)  # type: ignore
+        self.move_group.set_planner_id("RRTstar")  # Better for tight spaces
+        self.move_group.set_planning_time(10)
         self.move_group.set_goal_tolerance(0.01)
         self.move_group.allow_replanning(True)
         self.move_group.set_num_planning_attempts(10)
         self.move_group.set_start_state_to_current_state()
 
-        self.tau = 2 * np.pi # type: ignore
+        self.tau = 2 * np.pi  # type: ignore
 
         self._planning_frame = self.robot.get_planning_frame()
 
@@ -50,32 +50,54 @@ class PickPlaceController:
         self.cube_poses = {}
         self.cube_names = []
 
-        for i in range(cube_num):
-            rospy.loginfo(f"Subscribing to Topic /cube_{i}_odom")
-            rospy.Subscriber(f"/cube_{i}_odom", data_class=Odometry, callback=self._get_cube_info, queue_size=10)
+        # TODO: Subscribe to PoseArray
+        rospy.Subscriber(
+            "cube_pose",
+            data_class=geometry_msgs.msg.PoseArray,
+            callback=self._get_cube_info,
+            queue_size=10,
+        )
+
+        # for i in range(cube_num):
+        #     rospy.loginfo(f"Subscribing to Topic /cube_{i}_odom")
+        #     rospy.Subscriber(
+        #         f"/cube_{i}_odom",
+        #         data_class=Odometry,
+        #         callback=self._get_cube_info,
+        #         queue_size=10,
+        #     )
 
         self._add_collision_objects()
-        rospy.sleep(5) # Wait for cube poses
+        rospy.sleep(5)  # Wait for cube poses
 
         self.gripper = GripperController()
 
     def _get_cube_poses(self) -> dict:
         return self.cube_poses
 
-    def _get_cube_info(self, odo: Odometry):
-        cube_name = odo.child_frame_id
-        self.cube_poses[cube_name] = odo.pose.pose
-    
+    def _get_cube_info(self, pose_array: geometry_msgs.msg.PoseArray):
+        # DONE: Change this to work with Pose Array
+        # self.cube_poses should be a list with all cube poses, of Datatype geometry_msgs.msg.Pose
+        # Define own cube names, based on number of cubes in PoseArray
+        for i, pose in enumerate(pose_array.poses):
+            # cube_name = odo.child_frame_id
+            cube_name = f"cube_{i}"
+            self.cube_poses[cube_name] = pose
+
     def _open_gripper(self):
         rospy.loginfo("Opening Gripper")
         self.gripper.set_width(0.08)
 
-    
     def _close_gripper(self):
         rospy.loginfo("Closing Gripper")
         self.gripper.grasp()
 
-    def _create_collision_object(self, id, dimensions, pose: Union[geometry_msgs.msg.Pose, Odometry],):
+    def _create_collision_object(
+        self,
+        id,
+        dimensions,
+        pose: Union[geometry_msgs.msg.Pose, Odometry],
+    ):
         obj = moveit_msgs.msg.CollisionObject()
         obj.id = id
         obj.header.frame_id = self._planning_frame
@@ -90,7 +112,6 @@ class PickPlaceController:
         obj_pose.position.y = pose.position.y
         obj_pose.position.z = pose.position.z
 
-        
         obj_pose.orientation.w = pose.orientation.w
         obj_pose.orientation.x = pose.orientation.x
         obj_pose.orientation.y = pose.orientation.y
@@ -105,28 +126,29 @@ class PickPlaceController:
         collision_objects = self.scene.get_known_object_names()
 
         for obj in collision_objects:
-            if 'cube' in obj or 'table' in obj:
+            if "cube" in obj or "table" in obj:
                 self.scene.remove_world_object(obj)
 
         # * next, we want to create a collision object for the table
-        table_size = (0.81, 1.49, 0.787) # From launch config
+        table_size = (0.81, 1.49, 0.787)  # From launch config
         table_pose = geometry_msgs.msg.Pose()
         table_pose.position.x = 0.495
         table_pose.position.y = 0.0
         table_pose.position.z = -0.3935
-        table = self._create_collision_object(id='table',
-                                        dimensions=table_size,
-                                        pose=table_pose)
+        table = self._create_collision_object(
+            id="table", dimensions=table_size, pose=table_pose
+        )
         self.scene.add_object(table)
-
 
         # * Iterate over all cubes and add them as collision objects
         for cube_name, cube_pose in self._get_cube_poses().items():
             if cube_pose is not None:
-                cube = self._create_collision_object(id=cube_name, dimensions=[self.cube_size, self.cube_size, self.cube_size], pose=cube_pose,)
+                cube = self._create_collision_object(
+                    id=cube_name,
+                    dimensions=[self.cube_size, self.cube_size, self.cube_size],
+                    pose=cube_pose,
+                )
                 self.scene.add_object(cube)
-
-
 
     def _get_cube_order(self) -> list:
 
@@ -135,23 +157,29 @@ class PickPlaceController:
         points = []
         labels = []
 
-        for key, value in cube_poses.items(): 
-            value.position.z = 0 # We dont care about height
+        for key, value in cube_poses.items():
+            value.position.z = 0  # We dont care about height
 
             labels.append(key)
             points.append((value.position.x, value.position.y))
 
         tree = KDTree(points)
-        distances, _ = tree.query(points, k=2) # Get nearest neighbors of points
-        nearest_distances = distances[:, 1]  # Get only nearest neighbor distances (not to self)
-        sorted_indices = np.argsort(-nearest_distances)  # Sort indices based on nearest neighbor distance
+        distances, _ = tree.query(points, k=2)  # Get nearest neighbors of points
+        nearest_distances = distances[
+            :, 1
+        ]  # Get only nearest neighbor distances (not to self)
+        sorted_indices = np.argsort(
+            -nearest_distances
+        )  # Sort indices based on nearest neighbor distance
         print(nearest_distances)
         # Sort labels by rank (sorted_indices gives the order based on distance)
         cube_order = [labels[idx] for idx in sorted_indices]
 
         return cube_order
 
-    def _get_cube_location_in_order(self) -> list: # Why does this function still return z as plain 0 :))))))
+    def _get_cube_location_in_order(
+        self,
+    ) -> list:  # Why does this function still return z as plain 0 :))))))
         cube_order = self._get_cube_order()
         cube_poses = self._get_cube_poses()
         poses_in_order = []
@@ -168,19 +196,27 @@ class PickPlaceController:
         cube_locations = self._get_cube_location_in_order()
 
         # Honestly the following function is awful, TODO: find better way to generate grasp on "long" sides of the cube
-        for i in range(len(cube_locations)): # Function nullifies all angles which are close to pi or pi/2 to make grasping resistant to flipped cubes. Can this be done more efficiently?  
-            cube_quat = [cube_locations[i].orientation.x, 
-                        cube_locations[i].orientation.y, 
-                        cube_locations[i].orientation.z, 
-                        cube_locations[i].orientation.w]
+        for i in range(
+            len(cube_locations)
+        ):  # Function nullifies all angles which are close to pi or pi/2 to make grasping resistant to flipped cubes. Can this be done more efficiently?
+            cube_quat = [
+                cube_locations[i].orientation.x,
+                cube_locations[i].orientation.y,
+                cube_locations[i].orientation.z,
+                cube_locations[i].orientation.w,
+            ]
 
             cube_rpy = list(tf.transformations.euler_from_quaternion(cube_quat))
             for j, angle in enumerate(cube_rpy):
-                if any(math.isclose(angle, null_angle, abs_tol=0.01) for null_angle in nullify_angles):
+                if any(
+                    math.isclose(angle, null_angle, abs_tol=0.01)
+                    for null_angle in nullify_angles
+                ):
                     cube_rpy[j] = 0
 
-
-            quaternion = tf.transformations.quaternion_from_euler(0, math.pi, max(cube_rpy) - math.pi/4)
+            quaternion = tf.transformations.quaternion_from_euler(
+                0, math.pi, max(cube_rpy) - math.pi / 4
+            )
 
             cube_locations[i].orientation.x = quaternion[0]
             cube_locations[i].orientation.y = quaternion[1]
@@ -195,7 +231,6 @@ class PickPlaceController:
 
         return self._get_cube_poses()[self._get_cube_order()[0]]
 
-
     def move_to_pose(self, pose: geometry_msgs.msg.Pose) -> bool:
         # TODO: Is there some way to do proper collision-checking? Right now, Path planning is just timing out when no solution is found
         rospy.loginfo(f"Target Pose: {pose}")
@@ -208,20 +243,17 @@ class PickPlaceController:
 
     def follow_trajectory(self, goal_pose: geometry_msgs.msg.Pose) -> bool:
 
-
         return True
 
-        
     def _pick(self, cube_pose: geometry_msgs.msg.Pose) -> bool:
         # TODO: Implement Proper Trajectory Generation
 
         rospy.loginfo(f"Executing Pick Action for Pose {cube_pose} ...")
-        
+
         # Open Grasp
         self._open_gripper()
 
         rospy.loginfo(f"Moving above cube ...")
-        
 
         # Go Above Cube
         pose = geometry_msgs.msg.Pose()
@@ -230,12 +262,14 @@ class PickPlaceController:
 
         pose.orientation = cube_pose.orientation
 
-        pose.position.z = self.CUBE_HOVER_Z
+        pose.position.z = self.CUBE_HOVER_Z + 0.1
 
-        for retries in range(5): # As of now, the planning fails sometimes (ABORTED: TIMED_OUT). These nested if-statements make sure that it is restarted until a solution is found. TODO: Debug this properly. Also, when we are restarting the Positions dont really work anymore
-            if self.move_to_pose(pose): 
+        for retries in range(
+            5
+        ):  # As of now, the planning fails sometimes (ABORTED: TIMED_OUT). These nested if-statements make sure that it is restarted until a solution is found. TODO: Debug this properly. Also, when we are restarting the Positions dont really work anymore
+            if self.move_to_pose(pose):
 
-                # Move down to cube 
+                # Move down to cube
                 rospy.loginfo(f"Moving grip to cube ...")
 
                 pose.position.z = self.CUBE_GRASP_Z
@@ -249,11 +283,11 @@ class PickPlaceController:
                     rospy.loginfo(f"Picking up cube ...")
 
                     # Go back up :)
-                    pose.position.z = self.CUBE_HOVER_Z
+                    pose.position.z = self.CUBE_HOVER_Z + 0.1
 
                     if self.move_to_pose(pose):
-                        return True 
-                    
+                        return True
+
         return False
 
     def _place(self, pose: geometry_msgs.msg.Pose) -> bool:
@@ -262,7 +296,7 @@ class PickPlaceController:
 
         current_pose = self.move_group.get_current_pose().pose
 
-        pose.orientation = current_pose.orientation # Dont change orientation, WIP
+        pose.orientation = current_pose.orientation  # Dont change orientation, WIP
 
         for retries in range(5):
             pose.position.z += 0.3
@@ -279,17 +313,18 @@ class PickPlaceController:
 
         return False
 
-
-        
-        
-    def _build_tower(self) -> bool:  # TODO: Gripper logic is currently broken, randomly opens after picking up cube
+    def _build_tower(
+        self,
+    ) -> (
+        bool
+    ):  # TODO: Gripper logic is currently broken, randomly opens after picking up cube
         cube_grasps = self._get_cube_grasps_in_order()
 
         tower_pose = geometry_msgs.msg.Pose()
 
         print(cube_grasps)
         for i, cube_pose in enumerate(cube_grasps):
-            if i == 0: # Assume its the best position to build 
+            if i == 0:  # Assume its the best position to build
                 tower_pose = cube_pose
                 tower_pose.position.z += self.CUBE_GRASP_Z
                 continue
@@ -297,25 +332,67 @@ class PickPlaceController:
 
             self._pick(cube_pose)
 
-            tower_pose.position.z += self.cube_size
+            tower_pose.position.z += self.cube_size + 0.01
 
             self._place(tower_pose)
-
 
         return True
 
     def run(self):
         self._open_gripper()
 
-        for i in range(self.cube_num):
-            name = "cube_" + str(self.cube_num)
+        for i, _ in enumerate(self.cube_poses):
+            # for i in range(self.cube_num):
+            name = f"cube_{i}"
             self.scene.remove_attached_object("panda_link8", name=name)
-
 
         rate = rospy.Rate(10)
         pose_goal = self.move_group.get_current_pose().pose
 
-        #print(self.move_group.get_current_joint_values())
+        # init_joint_angles = [
+        #     0.00013243881315272432,
+        #     -0.7839791476933904,
+        #     -1.2629424535504086e-05,
+        #     -2.358711079936866,
+        #     -2.7162019504700652e-05,
+        #     1.5713224572373559,
+        #     0.7854116670960147,
+        # ]
+
+        # self.move_group.go(init_joint_angles, wait=True)
+
+        # cube_pose = self.move_group.get_current_pose().pose
+
+        # # cube_pose: geometry_msgs.msg.Pose = geometry_msgs.msg.Pose()
+        # cube_pose.position.x = 0.5438
+        # cube_pose.position.y = 0.0466
+        # cube_pose.position.z = 0.1402
+
+        # self.move_to_pose(cube_pose)
+
+        # self._close_gripper()
+
+        # cube_pose.position.z += 0.2
+
+        # self.move_to_pose(cube_pose)
+
+        # cube_pose.position.x += 0.1
+
+        # self.move_to_pose(cube_pose)
+
+        # cube_pose.position.z -= 0.198
+
+        # self.move_to_pose(cube_pose)
+
+        # self._open_gripper()
+
+        # cube_pose.position.z += 0.1
+
+        # self.move_to_pose(cube_pose)
+
+        # self.move_group.go(init_joint_angles, wait=True)
+
+        # print(self.move_group.get_current_joint_values())
         while not rospy.is_shutdown():
             # Move to overview pose to capture table with viewpoint
             # overview_pose = geometry_msgs.msg.Pose()
@@ -330,15 +407,28 @@ class PickPlaceController:
             # overview_pose.orientation.z = quat[2]
             # overview_pose.orientation.w = quat[3]
 
+            # init_joint_angles = [0.00013243881315272432, -0.7839791476933904, -1.2629424535504086e-05, -2.358711079936866, -2.7162019504700652e-05, 1.5713224572373559, 0.7854116670960147,]
 
-            #init_joint_angles = [0.00013243881315272432, -0.7839791476933904, -1.2629424535504086e-05, -2.358711079936866, -2.7162019504700652e-05, 1.5713224572373559, 0.7854116670960147,]
+            init_joint_angles = [
+                0.00013243881315272432,
+                -0.7839791476933904,
+                -1.2629424535504086e-05,
+                -2.358711079936866,
+                -2.7162019504700652e-05,
+                1.5713224572373559,
+                0.7854116670960147,
+            ]
 
-            #self.move_group.go(init_joint_angles, wait=True)
+            self.move_group.go(init_joint_angles, wait=True)
+
+            # self.move_group.go(init_joint_angles, wait=True)
             print(self._get_cube_order())
             print(self._get_ideal_tower_location())
             print(self._get_cube_location_in_order())
             print(len(self._get_cube_location_in_order()))
             self._build_tower()
+
+            self.move_group.go(init_joint_angles, wait=True)
             break
             # overview_pose = geometry_msgs.msg.Pose()
             # overview_pose.position.x = 0.3
@@ -358,19 +448,18 @@ class PickPlaceController:
             #     rospy.sleep(5)
 
             # Wait for cube_pose to be available
-            #self._build_tower()
-            #if self._pick(0):
+            # self._build_tower()
+            # if self._pick(0):
             #    self._place(self.cube_poses["cube_1"])
             #    print("SUCCESS!")
-            #break
-            #print(f"FAILED!")
-            
-        #self._open_gripper()
-        
+            # break
+            # print(f"FAILED!")
+
+        # self._open_gripper()
 
 
 if __name__ == "__main__":
-    controller = PickPlaceController(cube_num=5)
+    controller = PickPlaceController()
     controller.run()
 
 # TODO: Fix Pick&Place, Pick greift irgendwie leicht daneben.
