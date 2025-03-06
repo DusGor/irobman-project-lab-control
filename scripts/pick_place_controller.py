@@ -16,7 +16,20 @@ from scipy.spatial import KDTree
 from gripper_controller import GripperController
 from nav_msgs.msg import Odometry
 
-SIM = False
+import argparse
+
+parser = argparse.ArgumentParser(
+    description="irobman-project-lab-perception"
+)
+
+parser.add_argument(
+    "--sim_mode", type=bool, default=True, help="Whether to configure the node for simulation or the real robot"
+)
+
+# parse the arguments
+args_cli = parser.parse_args()
+
+print(f"SIM MODE: {args_cli.sim_mode}")
 
 
 class PickPlaceController:
@@ -24,8 +37,6 @@ class PickPlaceController:
         moveit_commander.roscpp_initialize(sys.argv)
         rospy.init_node("pick_place_controller")
         rospy.loginfo("Pick Place Controller Started ...")
-        if SIM:
-            rospy.loginfo("SIMULATION MODE!!!!!!")
 
         self.cube_size = 0.045  # Added in class to use in calculations later
         self.cube_num = cube_num
@@ -56,7 +67,7 @@ class PickPlaceController:
         self.cube_names = []
 
         # TODO: Subscribe to PoseArray
-        if SIM:
+        if args_cli.sim_mode:
             for i in range(cube_num):
                 rospy.loginfo(f"Subscribing to Topic /cube_{i}_odom")
                 rospy.Subscriber(
@@ -85,7 +96,7 @@ class PickPlaceController:
         # DONE: Change this to work with Pose Array
         # self.cube_poses should be a list with all cube poses, of Datatype geometry_msgs.msg.Pose
         # Define own cube names, based on number of cubes in PoseArray
-        if SIM:
+        if args_cli.sim_mode:
             cube_name = pose_array.child_frame_id  # pose_array here is of type Odometry
             self.cube_poses[cube_name] = pose_array.pose.pose
         else:
@@ -436,7 +447,7 @@ class PickPlaceController:
     def run(self):
         self._open_gripper()
 
-        if SIM:
+        if args_cli.sim_mode:
             for i in range(self.cube_num):
                 name = "cube_" + str(self.cube_num)
         else:
