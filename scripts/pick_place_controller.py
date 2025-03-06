@@ -3,6 +3,8 @@ import sys
 from typing import List, Union
 import numpy as np
 
+import actionlib
+from irobman_project_lab_control.msg import ManipulatorControlAction, ManipulatorControlFeedback, ManipulatorControlResult
 import rospy
 import moveit_commander
 import moveit_msgs.msg
@@ -55,6 +57,19 @@ class PickPlaceController:
         self.move_group.allow_replanning(True)
         self.move_group.set_num_planning_attempts(10)
         self.move_group.set_start_state_to_current_state()
+
+        self.server = actionlib.SimpleActionServer("manipulator_control", ManipulatorControlAction, self.execute, False)
+        self.server.start()
+
+        self.init_joint_angles = [
+                -0.04753676322737352,
+                -0.8375225578454684,
+                -0.002787040147540649,
+                -2.6292071353672037,
+                -0.002262416709746875,
+                1.9040078309531414,
+                0.7482308930369274,
+            ]
 
         self.tau = 2 * np.pi  # type: ignore
 
@@ -521,17 +536,9 @@ class PickPlaceController:
 
             # init_joint_angles = [0.00013243881315272432, -0.7839791476933904, -1.2629424535504086e-05, -2.358711079936866, -2.7162019504700652e-05, 1.5713224572373559, 0.7854116670960147,]
 
-            init_joint_angles = [
-                -0.04753676322737352,
-                -0.8375225578454684,
-                -0.002787040147540649,
-                -2.6292071353672037,
-                -0.002262416709746875,
-                1.9040078309531414,
-                0.7482308930369274,
-            ]
+            
 
-            self.move_group.go(init_joint_angles, wait=True)
+            
 
             # self.move_group.go(init_joint_angles, wait=True)
             print(self._get_cube_order())
@@ -569,10 +576,42 @@ class PickPlaceController:
 
         # self._open_gripper()
 
+    def execute(self, goal):
+        rospy.loginfo(f"Received command: {goal.command}")
+
+        feedback = ManipulatorControlFeedback()
+        result = ManipulatorControlResult()
+
+        if goal.command == "go_to_overview":
+            success = self.move_group.go(self.init_joint_angles, wait=True)
+            print(success)
+            result.success = success
+            if result:
+                feedback.feedback = "Reached Overview."
+            else:
+                feedback.feedback = "Failed to reach overview!"
+        elif goal.command == "scan_cube":
+            # TODO: DO SOMETHING
+            result.success = True
+            feedback.feedback = f"Reached cube pose: {goal.target_pose}"
+        elif goal.command == "pick":
+            # TODO: DO SOMETHING
+            result.success = True
+            feedback.feedback = "Object picked."
+        elif goal.command == "place":
+            # TODO: DO SOMETHING
+            result.success = True
+            feedback.feedback = "Object palced."
+        else:
+            result.success = False
+            feedback.feedback = "Unknown command."
+        self.server.publish_feedback(feedback)
+        self.server.set_succeeded(result)
+
 
 if __name__ == "__main__":
     controller = PickPlaceController()
-    controller.run()
+    # controller.run()
 
 # TODO: Fix Pick&Place, Pick greift irgendwie leicht daneben.
 # TODO: Intelligenteres Pick, schauen ob Grasp mit anderen Cubes kollidiert

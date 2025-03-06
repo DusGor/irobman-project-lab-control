@@ -1,0 +1,6 @@
+string command # "go_to_overview", "scan cube", "pick", "place"
+geometry_msgs/Pose target_pose
+---
+bool success # True when movement is complete
+---
+string feedback # Status updates (e.g. "Moving...", "Reached target")

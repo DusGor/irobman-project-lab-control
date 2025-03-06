@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(irobman)
+project(irobman_project_lab_control)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
@@ -12,6 +12,14 @@ find_package(catkin REQUIRED)
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
+find_package(catkin REQUIRED COMPONENTS
+    actionlib_msgs
+    actionlib
+    rospy
+    std_msgs
+    geometry_msgs
+    message_generation
+)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -57,17 +65,18 @@ find_package(catkin REQUIRED)
 # )
 
 ## Generate actions in the 'action' folder
-# add_action_files(
-#   FILES
-#   Action1.action
-#   Action2.action
-# )
+add_action_files(
+  FILES
+  ManipulatorControl.action
+)
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs  # Or other packages containing msgs
-# )
+generate_messages(
+  DEPENDENCIES
+  actionlib_msgs
+  std_msgs  # Or other packages containing msgs
+  geometry_msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -103,6 +112,7 @@ catkin_package(
 #  LIBRARIES irobman-project-lab-control
 #  CATKIN_DEPENDS other_catkin_pkg
 #  DEPENDS system_lib
+    CATKIN_DEPENDS actionlib_msgs actionlib rospy std_msgs geometry_msgs
 )
 
 ###########

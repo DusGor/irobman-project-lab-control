@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>irobman</name>
+  <name>irobman_project_lab_control</name>
   <version>0.0.0</version>
-  <description>The irobman-project-lab-control package</description>
+  <description>The irobman_project_lab_control package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->
@@ -52,6 +52,10 @@
   <depend>rospy</depend>
   <depend>turtlesim</depend>
   <depend>moveit</depend>
+  <depend>actionlib</depend>
+  <depend>actionlib_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>
