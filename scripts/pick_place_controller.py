@@ -251,20 +251,9 @@ class PickPlaceController:
         # print(nearest_distances)
         # Sort labels by rank (sorted_indices gives the order based on distance)
         cube_order = [labels[idx] for idx in sorted_indices]
-        # print(cube_order)
+        print("ORDER", cube_order)
+        
         return cube_order
-
-    def _get_cube_location_in_order(
-        self,
-    ) -> list:  # Why does this function still return z as plain 0 :))))))
-        cube_order = self._get_cube_order()
-        cube_poses = self._get_cube_poses()
-        poses_in_order = []
-
-        for cube in cube_order:
-            poses_in_order.append(self._get_cube_location(cube))
-
-        return np.array(poses_in_order)
 
     def _get_cube_location(self, cube):
         return self.cube_poses[cube]
@@ -283,17 +272,19 @@ class PickPlaceController:
 
         cube_rpy = list(tf.transformations.euler_from_quaternion(cube_quat))
 
-        for j, angle in enumerate(cube_rpy):
-            if any(
-                math.isclose(angle, null_angle, abs_tol=0.01)
-                for null_angle in nullify_angles
-            ):
-                cube_rpy[j] = 0
-
+        grasp_yaw = cube_rpy[2]
+        print(grasp_yaw)
+        #grasp_yaw = grasp_yaw % (math.pi / 2)
+        print(grasp_yaw)
+        grasp_yaw += (math.pi/4)
+        print(grasp_yaw)
+        
         quaternion = tf.transformations.quaternion_from_euler(
-            0, math.pi, max(cube_rpy) - math.pi / 4
+            0, 
+            math.pi, # point down 
+            grasp_yaw
         )
-
+        print(f"Grasping {tf.transformations.euler_from_quaternion(quaternion)}")
         cube_loc.orientation.x = quaternion[0]
         cube_loc.orientation.y = quaternion[1]
         cube_loc.orientation.z = quaternion[2]
@@ -302,19 +293,6 @@ class PickPlaceController:
         grasp = cube_loc
         return grasp
 
-    def _get_cube_grasps_in_order(self) -> list:
-
-        cube_grasps = []
-        cube_locations = self._get_cube_location_in_order()
-
-        # Honestly the following function is awful, TODO: find better way to generate grasp on "long" sides of the cube
-        for i in range(
-            len(cube_locations)
-        ):  # Function nullifies all angles which are close to pi or pi/2 to make grasping resistant to flipped cubes. Can this be done more efficiently?
-            cube_name = "cube_" + str(i)
-            cube_grasps.append([cube_name, self._get_cube_grasp(cube_name)])
-
-        return np.array(cube_grasps)
 
     def _get_ideal_tower_location(self) -> geometry_msgs.msg.Pose:
 
@@ -334,14 +312,10 @@ class PickPlaceController:
 
         return True
 
-    def _pick(self, cube_pose: geometry_msgs.msg.Pose, name) -> bool:
+    def _pick(self, name) -> bool:
         # TODO: Implement Proper Trajectory Generation
 
-        rospy.loginfo(f"Executing Pick Action for Pose {cube_pose} ...")
-        pose = geometry_msgs.msg.Pose()
-
-        cube_pose = self._get_cube_grasp(name)
-        pose.orientation = cube_pose.orientation
+        rospy.loginfo(f"Executing Pick Action for Cube {name} ...")
 
         for (
             retries
@@ -350,7 +324,9 @@ class PickPlaceController:
         ):  # As of now, the planning fails sometimes (ABORTED: TIMED_OUT). These nested if-statements make sure that it is restarted until a solution is found. TODO: Debug this properly. Also, when we are restarting the Positions dont really work anymore
             rospy.loginfo(f"Pick Attempt {retries+1}")
             # Go Above Cube
+            pose = geometry_msgs.msg.Pose()
             cube_pose = self._get_cube_grasp(name)
+            pose.orientation = cube_pose.orientation
             pose.position.x = cube_pose.position.x
             pose.position.y = cube_pose.position.y
             pose.position.z = self.CUBE_HOVER_Z + 0.1
@@ -436,22 +412,25 @@ class PickPlaceController:
     def _build_tower(
         self,
     ) -> bool:
-        cube_grasps = self._get_cube_grasps_in_order()
         tower_pose = geometry_msgs.msg.Pose()
         tower_pose.position.z = 0
         # print(cube_grasps)
         i = 0
-        for cube_name, cube_pose in cube_grasps:
-            i += 1
-            if i == 1:  # Assume its the best position to build
-                tower_pose.position.x = cube_pose.position.x
-                tower_pose.position.y = cube_pose.position.y
 
-                tower_pose.orientation = cube_pose.orientation
-                continue
+        tower_pose.position.x = 0.5
+        tower_pose.position.y = 0.3
+
+        tower_pose.orientation.x = 0 
+        tower_pose.orientation.y = 0 
+        tower_pose.orientation.z = 0 
+        tower_pose.orientation.w = 0 
+        
+        for cube_name in self._get_cube_order():
+            i += 1
+
             rospy.loginfo(f"Pick&Place for {cube_name}")
 
-            self._pick(cube_pose, cube_name)
+            self._pick(cube_name)
 
             tower_pose.position.z = self.CUBE_HOVER_Z + ((i - 1) * (self.cube_size))
             rospy.loginfo("Initializing Place...")
@@ -539,12 +518,6 @@ class PickPlaceController:
             
 
             
-
-            # self.move_group.go(init_joint_angles, wait=True)
-            print(self._get_cube_order())
-            print(self._get_ideal_tower_location())
-            print(self._get_cube_location_in_order())
-            print(len(self._get_cube_location_in_order()))
             self._build_tower()
 
             self.move_group.go(init_joint_angles, wait=True)
@@ -611,7 +584,7 @@ class PickPlaceController:
 
 if __name__ == "__main__":
     controller = PickPlaceController()
-    # controller.run()
+    controller.run()
 
 # TODO: Fix Pick&Place, Pick greift irgendwie leicht daneben.
 # TODO: Intelligenteres Pick, schauen ob Grasp mit anderen Cubes kollidiert
