@@ -17,7 +17,7 @@ import math
 from scipy.spatial import KDTree
 from gripper_controller import GripperController
 from nav_msgs.msg import Odometry
-
+import copy
 import argparse
 
 parser = argparse.ArgumentParser(
@@ -251,7 +251,6 @@ class PickPlaceController:
         # print(nearest_distances)
         # Sort labels by rank (sorted_indices gives the order based on distance)
         cube_order = [labels[idx] for idx in sorted_indices]
-        print("ORDER", cube_order)
         
         return cube_order
 
@@ -273,11 +272,7 @@ class PickPlaceController:
         cube_rpy = list(tf.transformations.euler_from_quaternion(cube_quat))
 
         grasp_yaw = cube_rpy[2]
-        print(grasp_yaw)
-        #grasp_yaw = grasp_yaw % (math.pi / 2)
-        print(grasp_yaw)
         grasp_yaw += (math.pi/4)
-        print(grasp_yaw)
         
         quaternion = tf.transformations.quaternion_from_euler(
             0, 
@@ -312,10 +307,8 @@ class PickPlaceController:
 
         return True
 
-    def _pick(self, name) -> bool:
+    def _pick(self, grasp_pose: geometry_msgs.msg.Pose) -> bool:
         # TODO: Implement Proper Trajectory Generation
-
-        rospy.loginfo(f"Executing Pick Action for Cube {name} ...")
 
         for (
             retries
@@ -325,11 +318,14 @@ class PickPlaceController:
             rospy.loginfo(f"Pick Attempt {retries+1}")
             # Go Above Cube
             pose = geometry_msgs.msg.Pose()
-            cube_pose = self._get_cube_grasp(name)
+            cube_pose = copy.deepcopy(grasp_pose)
             pose.orientation = cube_pose.orientation
             pose.position.x = cube_pose.position.x
             pose.position.y = cube_pose.position.y
             pose.position.z = self.CUBE_HOVER_Z + 0.1
+
+            rospy.loginfo(f"Executing Pick Action for Pose {cube_pose} ...")
+
 
             self._open_gripper()
             rospy.loginfo(f"Moving Above Cube ...")
@@ -389,9 +385,6 @@ class PickPlaceController:
         current_pose = self.move_group.get_current_pose().pose
         place_pose = geometry_msgs.msg.Pose()
         place_pose.position = pose.position
-        place_pose.orientation = (
-            current_pose.orientation
-        )  # Dont change orientation, WIP, this should later equal the cube
 
         place_pose.position.z += 0.05  # Hover first
 
@@ -420,19 +413,19 @@ class PickPlaceController:
         tower_pose.position.x = 0.5
         tower_pose.position.y = 0.3
 
-        tower_pose.orientation.x = 0 
-        tower_pose.orientation.y = 0 
-        tower_pose.orientation.z = 0 
-        tower_pose.orientation.w = 0 
+        tower_quat = tf.transformations.quaternion_from_euler(0, math.pi, 0)
+        tower_pose.orientation.x = tower_quat[0]
+        tower_pose.orientation.y = tower_quat[1]
+        tower_pose.orientation.z = tower_quat[2]
+        tower_pose.orientation.w = tower_quat[3]
         
         for cube_name in self._get_cube_order():
             i += 1
 
             rospy.loginfo(f"Pick&Place for {cube_name}")
+            self._pick(self._get_cube_grasp(cube_name))
 
-            self._pick(cube_name)
-
-            tower_pose.position.z = self.CUBE_HOVER_Z + ((i - 1) * (self.cube_size))
+            tower_pose.position.z = self.CUBE_GRASP_Z + ((i - 1) * (self.cube_size))
             rospy.loginfo("Initializing Place...")
             self._place(tower_pose, cube_name)
 
@@ -455,99 +448,13 @@ class PickPlaceController:
 
         joint_values = self.move_group.get_current_joint_values()
 
-        # init_joint_angles = [
-        #     0.00013243881315272432,
-        #     -0.7839791476933904,
-        #     -1.2629424535504086e-05,
-        #     -2.358711079936866,
-        #     -2.7162019504700652e-05,
-        #     1.5713224572373559,
-        #     0.7854116670960147,
-        # ]
 
-        # self.move_group.go(init_joint_angles, wait=True)
-
-        # cube_pose = self.move_group.get_current_pose().pose
-
-        # # cube_pose: geometry_msgs.msg.Pose = geometry_msgs.msg.Pose()
-        # cube_pose.position.x = 0.5438
-        # cube_pose.position.y = 0.0466
-        # cube_pose.position.z = 0.1402
-
-        # self.move_to_pose(cube_pose)
-
-        # self._close_gripper()
-
-        # cube_pose.position.z += 0.2
-
-        # self.move_to_pose(cube_pose)
-
-        # cube_pose.position.x += 0.1
-
-        # self.move_to_pose(cube_pose)
-
-        # cube_pose.position.z -= 0.198
-
-        # self.move_to_pose(cube_pose)
-
-        # self._open_gripper()
-
-        # cube_pose.position.z += 0.1
-
-        # self.move_to_pose(cube_pose)
-
-        # self.move_group.go(init_joint_angles, wait=True)
-
-        # print(self.move_group.get_current_joint_values())
         while not rospy.is_shutdown():
-            # Move to overview pose to capture table with viewpoint
-            # overview_pose = geometry_msgs.msg.Pose()
-            # overview_pose.position.x = 0.4
-            # overview_pose.position.y = 0.0
-            # overview_pose.position.z = 0.7
-
-            # quat: np.ndarray = tf.transformations.quaternion_from_euler(- self.tau / 16, self.tau / 2 - self.tau / 16, - self.tau / 8)
-
-            # overview_pose.orientation.x = quat[0]
-            # overview_pose.orientation.y = quat[1]
-            # overview_pose.orientation.z = quat[2]
-            # overview_pose.orientation.w = quat[3]
-
-            # init_joint_angles = [0.00013243881315272432, -0.7839791476933904, -1.2629424535504086e-05, -2.358711079936866, -2.7162019504700652e-05, 1.5713224572373559, 0.7854116670960147,]
-
-            
-
-            
             self._build_tower()
 
             self.move_group.go(init_joint_angles, wait=True)
             break
-            # overview_pose = geometry_msgs.msg.Pose()
-            # overview_pose.position.x = 0.3
-            # overview_pose.position.y = 0.0
-            # overview_pose.position.z = 0.7
 
-            # euler = tf.transformations.euler_from_quaternion(np.array([0.9238, -0.3827, 0.0, 0.0]))
-
-            # # quat: np.ndarray = tf.transformations.quaternion_from_euler(- self.tau / 16, self.tau / 2 - self.tau / 16, - self.tau / 8)
-            # quat: np.ndarray = tf.transformations.quaternion_from_euler(euler[0], euler[1], euler[2])
-
-            # overview_pose.orientation.x = quat[0]
-            # overview_pose.orientation.y = quat[1]
-            # overview_pose.orientation.z = quat[2]
-            # overview_pose.orientation.w = quat[3]
-            # if self.move_to_pose(overview_pose):
-            #     rospy.sleep(5)
-
-            # Wait for cube_pose to be available
-            # self._build_tower()
-            # if self._pick(0):
-            #    self._place(self.cube_poses["cube_1"])
-            #    print("SUCCESS!")
-            # break
-            # print(f"FAILED!")
-
-        # self._open_gripper()
 
     def execute(self, goal):
         rospy.loginfo(f"Received command: {goal.command}")
@@ -584,7 +491,7 @@ class PickPlaceController:
 
 if __name__ == "__main__":
     controller = PickPlaceController()
-    # controller.run()
+    controller.run()
 
 # TODO: Fix Pick&Place, Pick greift irgendwie leicht daneben.
 # TODO: Intelligenteres Pick, schauen ob Grasp mit anderen Cubes kollidiert
