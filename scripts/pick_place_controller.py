@@ -584,7 +584,7 @@ class PickPlaceController:
 
 if __name__ == "__main__":
     controller = PickPlaceController()
-    controller.run()
+    # controller.run()
 
 # TODO: Fix Pick&Place, Pick greift irgendwie leicht daneben.
 # TODO: Intelligenteres Pick, schauen ob Grasp mit anderen Cubes kollidiert
