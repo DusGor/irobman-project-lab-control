@@ -385,6 +385,7 @@ class PickPlaceController:
         current_pose = self.move_group.get_current_pose().pose
         place_pose = geometry_msgs.msg.Pose()
         place_pose.position = pose.position
+        place_pose.orientation = pose.orientation
 
         place_pose.position.z += 0.05  # Hover first
 
@@ -395,7 +396,6 @@ class PickPlaceController:
                 place_pose.position.z -= 0.05
                 if self.move_to_pose(place_pose):
                     self._open_gripper()
-                    rospy.sleep(1)
                     place_pose.position.z += self.CUBE_HOVER_Z
                     self.move_to_pose(place_pose)
                 return True
@@ -410,8 +410,8 @@ class PickPlaceController:
         # print(cube_grasps)
         i = 0
 
-        tower_pose.position.x = 0.5
-        tower_pose.position.y = 0.3
+        tower_pose.position.x = 0.6
+        tower_pose.position.y = -0.2
 
         tower_quat = tf.transformations.quaternion_from_euler(0, math.pi, 0)
         tower_pose.orientation.x = tower_quat[0]
