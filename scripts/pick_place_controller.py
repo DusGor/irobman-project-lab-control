@@ -60,6 +60,7 @@ class PickPlaceController:
 
         self.server = actionlib.SimpleActionServer("manipulator_control", ManipulatorControlAction, self.execute, False)
         self.server.start()
+        print("Server started")
 
         self.init_joint_angles = [
                 -0.04753676322737352,
@@ -251,7 +252,6 @@ class PickPlaceController:
         # print(nearest_distances)
         # Sort labels by rank (sorted_indices gives the order based on distance)
         cube_order = [labels[idx] for idx in sorted_indices]
-        
         return cube_order
 
     def _get_cube_location(self, cube):
@@ -290,8 +290,48 @@ class PickPlaceController:
 
 
     def _get_ideal_tower_location(self) -> geometry_msgs.msg.Pose:
+        
+        cube_poses = self._get_cube_poses()
+        cube_positions = [(pose.position.x, pose.position.y) for pose in cube_poses.values()]
 
-        return self._get_cube_poses()[self._get_cube_order()[0]]
+        if not cube_positions:
+            raise ValueError("No cube positions available!")
+            
+        # Define the search space (adjust based on table size)
+        x_min, x_max = 0.4, 0.7  
+        y_min, y_max = -0.15, 0.15 # Tried -0.3:0.3 here but arm grip was getting unstable when passing singularities
+        grid_resolution = 200  # Number of points per axis
+        
+        # Create grid points for potential tower locations
+        grid_x = np.linspace(x_min, x_max, grid_resolution)
+        grid_y = np.linspace(y_min, y_max, grid_resolution)
+        grid_points = np.array([(x, y) for x in grid_x for y in grid_y])
+        
+        # Use KDTree for fast nearest-neighbor search
+        tree = KDTree(cube_positions)
+        distances, _ = tree.query(grid_points)  # Find nearest cube distance for each grid point
+
+        # Select the grid point with the maximum minimum distance (most isolated)
+        best_index = np.argmax(distances)
+        best_x, best_y = grid_points[best_index]
+
+        # Convert Euler angles (0, π, 0) to quaternion
+        quaternion = tf.transformations.quaternion_from_euler(0, math.pi, 0)
+
+        # Create and return Pose object
+        tower_pose = geometry_msgs.msg.Pose()
+        tower_pose.position.x = best_x
+        tower_pose.position.y = best_y
+        tower_pose.position.z = 0.01  # Tower is on the table
+
+        tower_pose.orientation.x = quaternion[0]
+        tower_pose.orientation.y = quaternion[1]
+        tower_pose.orientation.z = quaternion[2]
+        tower_pose.orientation.w = quaternion[3]
+
+        rospy.loginfo(f"Ideal Tower Pose is... {tower_pose}")
+        return tower_pose
+
 
     def move_to_pose(self, pose: geometry_msgs.msg.Pose) -> bool:
         # TODO: Is there some way to do proper collision-checking? Right now, Path planning is just timing out when no solution is found
@@ -303,9 +343,6 @@ class PickPlaceController:
 
         return result
 
-    def follow_trajectory(self, goal_pose: geometry_msgs.msg.Pose) -> bool:
-
-        return True
 
     def _pick(self, grasp_pose: geometry_msgs.msg.Pose) -> bool:
         # TODO: Implement Proper Trajectory Generation
@@ -341,33 +378,6 @@ class PickPlaceController:
 
                     self._close_gripper()
 
-                    # # Close Grasp
-                    # if (
-                    #     not self._close_gripper()
-                    # ):  # If grasp uncessful, rotate grasp a bit and try again
-                    #     rospy.loginfo("Reorienting Cube ...")
-                    #     cube_quat = [
-                    #         pose.orientation.x,
-                    #         pose.orientation.y,
-                    #         pose.orientation.z,
-                    #         pose.orientation.w,
-                    #     ]
-                    #     cube_rpy = list(
-                    #         tf.transformations.euler_from_quaternion(cube_quat)
-                    #     )
-                    #     cube_rpy[2] -= math.pi / 4
-                    #     quaternion = tf.transformations.quaternion_from_euler(
-                    #         0, math.pi, cube_rpy[2]
-                    #     )
-
-                    #     pose.orientation.x = quaternion[0]
-                    #     pose.orientation.y = quaternion[1]
-                    #     pose.orientation.z = quaternion[2]
-                    #     pose.orientation.w = quaternion[3]
-
-                    #     continue
-
-                    # else:
                     rospy.loginfo(f"Picking up cube ...")
 
                     # Go back up :)
@@ -378,7 +388,7 @@ class PickPlaceController:
 
         return False
 
-    def _place(self, pose: geometry_msgs.msg.Pose, name) -> bool:
+    def _place(self, pose: geometry_msgs.msg.Pose) -> bool:
 
         rospy.loginfo(f"Placing object at pose {pose}")
 
@@ -405,29 +415,19 @@ class PickPlaceController:
     def _build_tower(
         self,
     ) -> bool:
-        tower_pose = geometry_msgs.msg.Pose()
-        tower_pose.position.z = 0
-        # print(cube_grasps)
-        i = 0
-
-        tower_pose.position.x = 0.6
-        tower_pose.position.y = -0.2
-
-        tower_quat = tf.transformations.quaternion_from_euler(0, math.pi, 0)
-        tower_pose.orientation.x = tower_quat[0]
-        tower_pose.orientation.y = tower_quat[1]
-        tower_pose.orientation.z = tower_quat[2]
-        tower_pose.orientation.w = tower_quat[3]
+        tower_pose = self._get_ideal_tower_location()
         
+        i = 0
         for cube_name in self._get_cube_order():
-            i += 1
 
             rospy.loginfo(f"Pick&Place for {cube_name}")
             self._pick(self._get_cube_grasp(cube_name))
 
-            tower_pose.position.z = self.CUBE_GRASP_Z + ((i - 1) * (self.cube_size))
+            tower_pose.position.z = 0.01 + self.CUBE_GRASP_Z + (i * (self.cube_size))
             rospy.loginfo("Initializing Place...")
-            self._place(tower_pose, cube_name)
+            self._place(tower_pose)
+
+            i += 1
 
         return True
 
@@ -450,10 +450,12 @@ class PickPlaceController:
 
 
         while not rospy.is_shutdown():
-            self._build_tower()
+            if self._build_tower():
 
-            self.move_group.go(init_joint_angles, wait=True)
-            break
+                self.move_group.go(self.init_joint_angles, wait=True)
+                rospy.signal_shutdown("Tower complete")
+                break
+            
 
 
     def execute(self, goal):
@@ -491,7 +493,7 @@ class PickPlaceController:
 
 if __name__ == "__main__":
     controller = PickPlaceController()
-    controller.run()
+    # controller.run()
 
 # TODO: Fix Pick&Place, Pick greift irgendwie leicht daneben.
 # TODO: Intelligenteres Pick, schauen ob Grasp mit anderen Cubes kollidiert
