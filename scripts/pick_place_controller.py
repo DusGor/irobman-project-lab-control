@@ -257,11 +257,10 @@ class PickPlaceController:
     def _get_cube_location(self, cube):
         return self.cube_poses[cube]
 
-    def _get_cube_grasp(self, cube):
+    def _get_cube_grasp(self, cube_loc):
 
         nullify_angles = [0.00, 1.57, 3.14, -1.57, -3.14]
 
-        cube_loc = self._get_cube_location(cube)
         cube_quat = [
             cube_loc.orientation.x,
             cube_loc.orientation.y,
@@ -421,6 +420,9 @@ class PickPlaceController:
         for cube_name in self._get_cube_order():
 
             rospy.loginfo(f"Pick&Place for {cube_name}")
+
+
+
             self._pick(self._get_cube_grasp(cube_name))
 
             tower_pose.position.z = 0.01 + self.CUBE_GRASP_Z + (i * (self.cube_size))
@@ -474,10 +476,19 @@ class PickPlaceController:
                 feedback.feedback = "Failed to reach overview!"
         elif goal.command == "scan_cube":
             # TODO: DO SOMETHING
+            target_pose = goal.target_pose
+
+            target_pose.position.z += 0.1
+            self.move_to_pose(target_pose)
+
             result.success = True
             feedback.feedback = f"Reached cube pose: {goal.target_pose}"
         elif goal.command == "pick":
             # TODO: DO SOMETHING
+            target_pose = goal.target_pose
+            grasp = self._get_cube_grasp(target_pose)
+            self._pick(grasp)
+
             result.success = True
             feedback.feedback = "Object picked."
         elif goal.command == "place":
