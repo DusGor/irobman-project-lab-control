@@ -358,13 +358,16 @@ class PickPlaceController:
             pose.orientation = cube_pose.orientation
             pose.position.x = cube_pose.position.x
             pose.position.y = cube_pose.position.y
-            pose.position.z = self.CUBE_HOVER_Z + 0.1
+            pose.position.z = self.CUBE_HOVER_Z + 0.2
 
             rospy.loginfo(f"Executing Pick Action for Pose {cube_pose} ...")
 
 
             self._open_gripper()
             rospy.loginfo(f"Moving Above Cube ...")
+
+
+
 
             if self.move_to_pose(pose):
 
@@ -380,7 +383,7 @@ class PickPlaceController:
                     rospy.loginfo(f"Picking up cube ...")
 
                     # Go back up :)
-                    pose.position.z = self.CUBE_HOVER_Z + 0.1
+                    pose.position.z = self.CUBE_HOVER_Z + 0.2
 
                     if self.move_to_pose(pose):
                         return True
@@ -408,6 +411,9 @@ class PickPlaceController:
                     place_pose.position.z += self.CUBE_HOVER_Z
                     self.move_to_pose(place_pose)
                 return True
+        place_pose.position.z += 0.2
+        
+        self.move_to_pose(place_pose)
 
         return False
 
@@ -476,9 +482,22 @@ class PickPlaceController:
                 feedback.feedback = "Failed to reach overview!"
         elif goal.command == "scan_cube":
             # TODO: DO SOMETHING
-            target_pose = goal.target_pose
 
-            target_pose.position.z += 0.1
+
+            target_pose = goal.target_pose
+            
+            quaternion = tf.transformations.quaternion_from_euler(0, np.pi, np.pi)
+
+            target_pose.orientation.x = quaternion[0]
+            target_pose.orientation.y = quaternion[1]
+            target_pose.orientation.z = quaternion[2]
+            target_pose.orientation.w = quaternion[3]
+
+
+            target_pose.position.x -= 0.2
+            target_pose.position.y -= 0.1
+            target_pose.position.z += 0.3
+            
             self.move_to_pose(target_pose)
 
             result.success = True
@@ -493,6 +512,8 @@ class PickPlaceController:
             feedback.feedback = "Object picked."
         elif goal.command == "place":
             # TODO: DO SOMETHING
+            target_pose = goal.target_pose
+            self._place(target_pose)
             result.success = True
             feedback.feedback = "Object palced."
         else:
