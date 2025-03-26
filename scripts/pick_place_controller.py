@@ -25,7 +25,7 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument(
-    "--sim_mode", type=bool, default=True, help="Whether to configure the node for simulation or the real robot"
+    "--sim_mode", type=bool, default=False, help="Whether to configure the node for simulation or the real robot"
 )
 
 # parse the arguments
@@ -51,9 +51,10 @@ class PickPlaceController:
         self.scene = moveit_commander.PlanningSceneInterface()  # type: ignore
         group_name = "panda_arm"
         self.move_group: moveit_commander.MoveGroupCommander.MoveGroupCommander = moveit_commander.MoveGroupCommander(group_name)  # type: ignore
-        #  self.move_group.set_planner_id("RRTstar")  # Better for tight spaces
+        # self.move_group.set_planner_id("RRTstar")  # Better for tight spaces
+        self.move_group.set_planner_id("CHOMP")  # Better for tight spaces
         self.move_group.set_planning_time(10)
-        #  self.move_group.set_goal_tolerance(0.01)
+        self.move_group.set_goal_tolerance(0.001)
         self.move_group.allow_replanning(True)
         self.move_group.set_num_planning_attempts(10)
         self.move_group.set_start_state_to_current_state()
@@ -198,7 +199,7 @@ class PickPlaceController:
             id="wall1", dimensions=wall_size, pose=wall_pose
         )
 
-        #  self.scene.add_object(wall)
+        # self.scene.add_object(wall)
 
         quaternion = tf.transformations.quaternion_from_euler(0, 0, -math.pi / 4)
 
@@ -215,7 +216,7 @@ class PickPlaceController:
             id="wall2", dimensions=wall_size, pose=wall_pose
         )
 
-        #  self.scene.add_object(wall)
+        # self.scene.add_object(wall)
 
         # * Iterate over all cubes and add them as collision objects
         for cube_name, cube_pose in self._get_cube_poses().items():
@@ -358,7 +359,7 @@ class PickPlaceController:
             pose.orientation = cube_pose.orientation
             pose.position.x = cube_pose.position.x
             pose.position.y = cube_pose.position.y
-            pose.position.z = self.CUBE_HOVER_Z + 0.2
+            pose.position.z = self.CUBE_HOVER_Z + 0.3
 
             rospy.loginfo(f"Executing Pick Action for Pose {cube_pose} ...")
 
@@ -374,19 +375,25 @@ class PickPlaceController:
                 # Move down to cube
                 rospy.loginfo(f"Moving grip to cube ...")
 
-                pose.position.z = self.CUBE_GRASP_Z
+
+
+                pose.position.z = self.CUBE_GRASP_Z + 0.1
 
                 if self.move_to_pose(pose):
 
-                    self._close_gripper()
-
-                    rospy.loginfo(f"Picking up cube ...")
-
-                    # Go back up :)
-                    pose.position.z = self.CUBE_HOVER_Z + 0.2
+                    pose.position.z = self.CUBE_GRASP_Z
 
                     if self.move_to_pose(pose):
-                        return True
+                        rospy.sleep(1)
+                        self._close_gripper()
+                        rospy.sleep(1)
+                        rospy.loginfo(f"Picking up cube ...")
+
+                        # Go back up :)
+                        pose.position.z = self.CUBE_HOVER_Z + 0.2
+
+                        if self.move_to_pose(pose):
+                            return True
 
         return False
 
@@ -411,7 +418,7 @@ class PickPlaceController:
                     place_pose.position.z += self.CUBE_HOVER_Z
                     self.move_to_pose(place_pose)
                 return True
-        place_pose.position.z += 0.2
+        place_pose.position.z += 0.1
         
         self.move_to_pose(place_pose)
 
@@ -494,9 +501,9 @@ class PickPlaceController:
             target_pose.orientation.w = quaternion[3]
 
 
-            target_pose.position.x -= 0.2
-            target_pose.position.y -= 0.1
-            target_pose.position.z += 0.3
+            target_pose.position.x -= 0.05
+            target_pose.position.y -= 0.05
+            target_pose.position.z += 0.4
             
             self.move_to_pose(target_pose)
 
