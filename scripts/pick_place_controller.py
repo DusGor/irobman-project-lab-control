@@ -493,7 +493,7 @@ class PickPlaceController:
 
             target_pose = goal.target_pose
             
-            quaternion = tf.transformations.quaternion_from_euler(0, np.pi, np.pi)
+            quaternion = tf.transformations.quaternion_from_euler(0, np.pi, 0)
 
             target_pose.orientation.x = quaternion[0]
             target_pose.orientation.y = quaternion[1]
